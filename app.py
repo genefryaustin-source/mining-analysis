@@ -265,34 +265,153 @@ if selected_area:
         except Exception as e:
             st.error(f"USGS Query Error: {e}")
 
-    # BLM Mining Claims Search
-    st.subheader("BLM Mining Claims Search")
-    state_code = st.text_input("State Code (e.g., NM, NV)", value="NM")
-    county = st.text_input("County (optional)", value="")
-    if st.button("Search BLM Claims"):
+    # BLM Active Mining Claims Search (Official BLM ArcGIS Data with Pagination & CSV Export)
+    st.subheader("BLM Active Mining Claims Search (Official BLM ArcGIS Data)")
+    st.write("""
+    This uses the official BLM ArcGIS REST API for **active mining claims** (public data, no API key required).
+    - Max 2000 records per request
+    - Pagination supported for larger result sets
+    - **CSV Export** available when results are loaded
+    - Data directly from BLM NLSDB (updated regularly)
+    """)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        state_code = st.text_input("State Code (e.g., NM, NV, CO)", value="NM")
+        county = st.text_input("County Name (optional)", value="")
+    with col2:
+        claim_type_filter = st.selectbox("Claim Status Filter", ["All", "Active Only"])
+        records_per_page = st.selectbox("Records Per Page", [500, 1000, 2000], index=2)
+
+    # Session state for pagination and data
+    if 'blm_page_offset' not in st.session_state:
+        st.session_state.blm_page_offset = 0
+    if 'blm_current_df' not in st.session_state:
+        st.session_state.blm_current_df = None
+    if 'blm_all_results_df' not in st.session_state:
+        st.session_state.blm_all_results_df = pd.DataFrame()  # For cumulative export
+
+    def fetch_blm_claims(offset=0):
         try:
-            url = "https://thediggings.com/api/search/mining_claims"
-            params = {"state": state_code.upper(), "county": county, "limit": 50}
-            response = requests.get(url, params=params)
+            base_url = "https://gis.blm.gov/nlsdb/rest/services/Mining_Claims/MiningClaims/MapServer/1/query"
+            
+            where = "1=1"
+            if state_code:
+                where += f" AND STATE_CD = '{state_code.upper()}'"
+            if county:
+                where += f" AND COUNTY_NM LIKE '%{county.upper()}%'"
+            if claim_type_filter == "Active Only":
+                where += " AND STATUS = 'ACTIVE'"
+
+            params = {
+                "where": where,
+                "outFields": "*",
+                "returnGeometry": "false",
+                "f": "json",
+                "resultRecordCount": records_per_page,
+                "resultOffset": offset,
+                "orderByFields": "SERIAL_NBR DESC"
+            }
+
+            response = requests.get(base_url, params=params, timeout=30)
             if response.status_code == 200:
                 data = response.json()
-                if 'results' in data and data['results']:
-                    claims_df = pd.DataFrame(data['results'])
-                    st.dataframe(claims_df[['claim_id', 'name', 'status', 'type', 'owner']])
-                    st.session_state['blm_claims_df'] = claims_df
-                    if 'latitude' in claims_df.columns and 'longitude' in claims_df.columns:
-                        map_df = claims_df[['latitude', 'longitude', 'name']].dropna()
-                        if not map_df.empty:
-                            blm_map = folium.Map(location=[map_df['latitude'].mean(), map_df['longitude'].mean()], zoom_start=6)
-                            for _, row in map_df.iterrows():
-                                folium.Marker([row['latitude'], row['longitude']], popup=row['name']).add_to(blm_map)
-                            folium_static(blm_map)
+                if 'features' in data and data['features']:
+                    claims_list = [feature['attributes'] for feature in data['features']]
+                    df = pd.DataFrame(claims_list)
+                    if df.empty:
+                        return pd.DataFrame(), 0
+                    df.columns = [col.lower() for col in df.columns]
+                    return df, len(claims_list)
                 else:
-                    st.write("No claims found.")
+                    return pd.DataFrame(), 0
             else:
                 st.error(f"API Error: {response.status_code}")
+                return pd.DataFrame(), 0
         except Exception as e:
-            st.error(f"BLM Search Error: {e}")
+            st.error(f"Request failed: {e}")
+            return pd.DataFrame(), 0
+
+    col_left, col_mid, col_right = st.columns([1, 2, 1])
+    with col_mid:
+        if st.button("🔍 Search Active BLM Mining Claims", use_container_width=True):
+            st.session_state.blm_page_offset = 0
+            st.session_state.blm_all_results_df = pd.DataFrame()  # Reset cumulative
+            df_page, count = fetch_blm_claims(offset=0)
+            if not df_page.empty:
+                st.session_state.blm_current_df = df_page
+                st.session_state.blm_all_results_df = df_page.copy()
+                st.success(f"Found {len(df_page)} claims (page 1)")
+
+    # Display results and pagination
+    if st.session_state.blm_current_df is not None and not st.session_state.blm_current_df.empty:
+        st.success(f"Showing {len(st.session_state.blm_current_df)} claims (Total loaded: {len(st.session_state.blm_all_results_df)})")
+
+        # Key columns to display
+        display_cols = ['serial_nbr', 'claim_name', 'claim_type', 'status', 'state_cd', 'county_nm', 'claimant_name', 'loc_date']
+        available_cols = [col for col in display_cols if col in st.session_state.blm_current_df.columns]
+        st.dataframe(st.session_state.blm_current_df[available_cols], use_container_width=True)
+
+        # Map (limited points for performance)
+        if 'latitude' in st.session_state.blm_current_df.columns and 'longitude' in st.session_state.blm_current_df.columns:
+            map_df = st.session_state.blm_current_df[['latitude', 'longitude', 'claim_name']].dropna()
+            if not map_df.empty and len(map_df) <= 300:
+                blm_map = folium.Map(location=[map_df['latitude'].mean(), map_df['longitude'].mean()], zoom_start=8)
+                for _, row in map_df.iterrows():
+                    folium.CircleMarker(
+                        location=[row['latitude'], row['longitude']],
+                        radius=4,
+                        popup=row.get('claim_name', 'Claim'),
+                        color='blue',
+                        fill=True,
+                        fillOpacity=0.6
+                    ).add_to(blm_map)
+                folium_static(blm_map)
+            elif len(map_df) > 300:
+                st.info("Too many points for map display (>300). Showing table only.")
+
+        # CSV Export Button
+        csv = st.session_state.blm_all_results_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download All Loaded Claims as CSV",
+            data=csv,
+            file_name=f"blm_active_claims_{state_code.upper()}_{county or 'all'}_{claim_type_filter.lower()}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+        # Pagination Controls
+        col_prev, col_info, col_next = st.columns([1, 3, 1])
+        with col_prev:
+            if st.session_state.blm_page_offset > 0:
+                if st.button("⬅️ Previous Page"):
+                    new_offset = max(0, st.session_state.blm_page_offset - records_per_page)
+                    df_page, _ = fetch_blm_claims(offset=new_offset)
+                    if not df_page.empty:
+                        st.session_state.blm_current_df = df_page
+                        st.session_state.blm_page_offset = new_offset
+                        st.rerun()
+
+        with col_info:
+            st.write(f"Current offset: {st.session_state.blm_page_offset}")
+
+        with col_next:
+            if st.button("Next Page ➡️"):
+                new_offset = st.session_state.blm_page_offset + records_per_page
+                df_page, count = fetch_blm_claims(offset=new_offset)
+                if not df_page.empty and count > 0:
+                    st.session_state.blm_current_df = df_page
+                    st.session_state.blm_all_results_df = pd.concat([st.session_state.blm_all_results_df, df_page], ignore_index=True)
+                    st.session_state.blm_page_offset = new_offset
+                    st.rerun()
+                else:
+                    st.info("No more results available.")
+
+    st.info("""
+    **Data Source**: Official BLM ArcGIS Server (Active Mining Claims layer)  
+    **Endpoint**: https://gis.blm.gov/nlsdb/rest/services/Mining_Claims/MiningClaims/MapServer/1  
+    **Features**: Pagination, CSV export of all loaded results, real-time public data.
+    """)
 
     # JORC Compliance
     st.subheader("JORC Compliance Details and Reports")
