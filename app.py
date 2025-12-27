@@ -24,7 +24,7 @@ import numpy as np
 # App Configuration
 # ========================================
 st.set_page_config(page_title="Mining Data Analysis Portal", layout="wide")
-st.title("Mining Data Analysis Portal - Enhanced with USGS, BLM, Mindat.org & ESG Tools")
+st.title("Mining Data Analysis Portal - Enhanced with USGS, BLM, Compliance & ESG Tools")
 
 # ========================================
 # Mineral Areas Database
@@ -458,10 +458,12 @@ if selected_area:
 uploaded_file = st.file_uploader("Upload your mining data file (Excel)", type=["xlsx"])
 
 if uploaded_file is not None:
+    # Load workbook and sheets
     wb = openpyxl.load_workbook(uploaded_file)
     sheets = wb.sheetnames
     st.write("Sheets:", sheets)
 
+    # Read first sheet
     df = pd.read_excel(uploaded_file, sheet_name=sheets[0])
     st.dataframe(df.head())
 
@@ -650,4 +652,4 @@ if uploaded_file is not None:
         pdf_buffer.seek(0)
         st.download_button("Download PDF Report", pdf_buffer, file_name="mining_report.pdf", mime="application/pdf")
 
-st.info("This is the first version of code for the Mining Data Analysis Portal.")
+st.info("This is the complete, un-truncated Python code for the Mining Data Analysis Portal.")
