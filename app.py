@@ -251,6 +251,37 @@ if selected_area:
                     st.session_state['ree_present'] = ree_present
                     st.write(f"PGM Presence Detected: {pgm_present}")
                     st.write(f"REE Presence Detected: {ree_present}")
+                    if pgm_present:
+                        st.subheader("Detailed PGM Deposit Models and Case Studies")
+                        st.write("""
+                        Detailed PGM Model Examples (from USGS Bulletin 1693 and similar):
+                        1. **Alaskan-type PGE Deposits (Model 9a)**: Associated with zoned mafic-ultramafic intrusions (e.g., dunite, clinopyroxenite). PGE in sulfides like pentlandite, pyrrhotite. Characteristics: High Pd/Pt ratios, formed in arc settings. Case Study: Stillwater Complex (MT) - Layered intrusion with J-M Reef, world's highest-grade PGE deposit, operated by Sibanye-Stillwater, producing ~0.5 Moz PGE annually.
+                        2. **Podiform Chromite Deposits (Model 8a)**: PGE as by-product in ophiolites. PGE in laurite inclusions in chromite. Characteristics: Low Pd, high Ru-Ir-Os. Case Study: Josephine Ophiolite (OR-CA) - Small-scale chromite mining with minor PGE recovery; historical production.
+                        3. **Stratiform PGE in Layered Intrusions (Model 5b)**: Reef-style in Bushveld-type complexes. PGE in reef horizons with sulfides. Characteristics: High Pt-Pd. Case Study: Duluth Complex (MN) - Potential for PGE in Cu-Ni sulfides; exploration by Antofagasta for Ni-Cu-PGE.
+                        4. **Synorogenic-Ni-Cu-PGE (Model 7a)**: In synorogenic intrusions. PGE in massive sulfides. Characteristics: High Ni-Cu with PGE. Case Study: Turnagain (Canada), but US analog in Voisey's Bay-style; limited US examples like Eagle Mine (MI) for Ni-Cu with minor PGE.
+                        5. **Flood Basalt-Associated Ni-Cu-PGE (Model 5a)**: In komatiitic flows or sills. Sulfides in reefs. Characteristics: High Pd. Case Study: Columbia River Basalts (US) - Potential in mafic sills; exploration for Ni-Cu-PGE in similar settings.
+                        """)
+                    if ree_present:
+                        st.subheader("Detailed REE Deposit Models")
+                        st.write("""
+                        Detailed REE Model Examples (from USGS Bulletin 1693 and similar):
+                        1. **Carbonatite Deposits (Model 10)**: REE in apatite, monazite, bastnaesite. Examples: Mountain Pass (CA), Bear Lodge (WY). Characteristics: Alkaline intrusions, high LREE, associated with Nb, U.
+                        2. **Peralkaline Granite Deposits (Model 11)**: REE in allanite, zircon, eudialyte. Examples: Bokan Mountain (AK). Characteristics: High HREE, U-Th associated, A-type granites.
+                        3. **Phosphorite Deposits (Model 34c)**: REE as by-product in marine phosphates. Examples: Florida phosphorites. Characteristics: Sedimentary, low-grade REE in apatite.
+                        4. **Ion-Adsorption Clay Deposits (Model 11d)**: Weathered granites with adsorbed REE. Examples: Chinese deposits, potential in US southeast. Characteristics: Supergene enrichment, easy leaching.
+                        5. **Placer Deposits (Model 39a)**: REE in monazite sands. Examples: Idaho placers. Characteristics: Heavy mineral concentrations, beach/river placers.
+                        """)
+                        if st.checkbox("Show Enhanced REE Visuals"):
+                            ree_elements = ['La', 'Ce', 'Pr', 'Nd', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu', 'Y', 'Sc']
+                            example_abundances = [random.uniform(0, 100) for _ in ree_elements]
+                            fig_ree, ax_ree = plt.subplots()
+                            ax_ree.bar(ree_elements, example_abundances)
+                            ax_ree.set_title("Example REE Abundance in Deposits")
+                            ax_ree.set_ylabel("Abundance (ppm)")
+                            st.pyplot(fig_ree)
+                            st.session_state['ree_chart'] = fig_ree
+                            st.image("https://www.usgs.gov/sites/default/files/styles/original/public/2023-02/ree-us-map.png?itok=6yY2z5uK", caption="US REE Deposits Map (USGS)")
+
                     if 'latitude' in usgs_df.columns and 'longitude' in usgs_df.columns:
                         map_df = usgs_df[['latitude', 'longitude', 'site_name']].dropna()
                         if not map_df.empty:
@@ -264,6 +295,62 @@ if selected_area:
                 st.error(f"USGS API Error: {response.status_code}")
         except Exception as e:
             st.error(f"USGS Query Error: {e}")
+
+    # The Diggings API Claims Search (Optional Paid)
+    st.subheader("The Diggings Mining Claims Search (Optional Paid API)")
+    st.write("""
+    This uses The Diggings API for mining claims (requires paid subscription and API key).
+    Add DIGGINGS_API_KEY to your Streamlit secrets.toml for access.
+    If no key, use the official BLM ArcGIS search below.
+    """)
+
+    diggings_api_key = st.secrets.get("DIGGINGS_API_KEY", None)
+    
+    if diggings_api_key:
+        st.success("The Diggings API key detected — claims search enabled.")
+        state_code = st.text_input("State Code (e.g., NM, NV)", value="NM", key="diggings_state")
+        county = st.text_input("County Name (optional)", value="", key="diggings_county")
+        claim_type = st.selectbox("Claim Type", ["All", "Active", "Closed"], key="diggings_type")
+        
+        if st.button("Search Claims via The Diggings API"):
+            try:
+                url = "https://thediggings.com/api/search/mining_claims"
+                headers = {"Authorization": f"Bearer {diggings_api_key}"}
+                params = {
+                    "state": state_code.upper(),
+                    "county": county if county else None,
+                    "status": claim_type.lower() if claim_type != "All" else None,
+                    "limit": 50
+                }
+                response = requests.get(url, headers=headers, params=params)
+                if response.status_code == 200:
+                    data = response.json()
+                    if 'results' in data and data['results']:
+                        claims_df = pd.DataFrame(data['results'])
+                        display_cols = ['claim_id', 'name', 'status', 'type', 'location', 'owner']
+                        available_cols = [col for col in display_cols if col in claims_df.columns]
+                        st.dataframe(claims_df[available_cols])
+                        st.session_state['diggings_df'] = claims_df
+                        
+                        # Map if coordinates available
+                        if 'latitude' in claims_df.columns and 'longitude' in claims_df.columns:
+                            map_df = claims_df[['latitude', 'longitude', 'name']].dropna()
+                            if not map_df.empty:
+                                diggings_map = folium.Map(location=[map_df['latitude'].mean(), map_df['longitude'].mean()], zoom_start=6)
+                                for _, row in map_df.iterrows():
+                                    folium.Marker([row['latitude'], row['longitude']], popup=row['name']).add_to(diggings_map)
+                                folium_static(diggings_map)
+                    else:
+                        st.info("No claims found matching your criteria.")
+                elif response.status_code == 403:
+                    st.error("API returned 403 Forbidden. Your API key may be invalid or expired.")
+                else:
+                    st.error(f"API Error: {response.status_code} - {response.text}")
+            except Exception as e:
+                st.error(f"Search failed: {e}")
+    else:
+        st.warning("No The Diggings API key found in secrets. Real-time search disabled. Add DIGGINGS_API_KEY to secrets.toml to enable.")
+        st.markdown("[Open The Diggings Website](https://thediggings.com/)")
 
     # BLM Active Mining Claims Search (Official BLM ArcGIS Data with Pagination & CSV Export)
     st.subheader("BLM Active Mining Claims Search (Official BLM ArcGIS Data)")
