@@ -19,6 +19,7 @@ import random
 import plotly.express as px
 from scipy.interpolate import griddata
 import numpy as np
+import time  # Added missing import for sleep in retry logic
 
 # ========================================
 # App Configuration
@@ -296,79 +297,25 @@ if selected_area:
         except Exception as e:
             st.error(f"USGS Query Error: {e}")
 
-    # The Diggings API Claims Search (Optional Paid)
-    st.subheader("The Diggings Mining Claims Search (Optional Paid API)")
+        # ========================================
+    # BLM Mining Claims Search (Official BLM ArcGIS Data with Pagination & CSV Export)
+    # ========================================
+    st.subheader("BLM Mining Claims Search (Official BLM ArcGIS Data)")
     st.write("""
-    This uses The Diggings API for mining claims (requires paid subscription and API key).
-    Add DIGGINGS_API_KEY to your Streamlit secrets.toml for access.
-    If no key, use the official BLM ArcGIS search below.
-    """)
-
-    diggings_api_key = st.secrets.get("DIGGINGS_API_KEY", None)
-    
-    if diggings_api_key:
-        st.success("The Diggings API key detected — claims search enabled.")
-        state_code = st.text_input("State Code (e.g., NM, NV)", value="NM", key="diggings_state")
-        county = st.text_input("County Name (optional)", value="", key="diggings_county")
-        claim_type = st.selectbox("Claim Type", ["All", "Active", "Closed"], key="diggings_type")
-        
-        if st.button("Search Claims via The Diggings API"):
-            try:
-                url = "https://thediggings.com/api/search/mining_claims"
-                headers = {"Authorization": f"Bearer {diggings_api_key}"}
-                params = {
-                    "state": state_code.upper(),
-                    "county": county if county else None,
-                    "status": claim_type.lower() if claim_type != "All" else None,
-                    "limit": 50
-                }
-                response = requests.get(url, headers=headers, params=params)
-                if response.status_code == 200:
-                    data = response.json()
-                    if 'results' in data and data['results']:
-                        claims_df = pd.DataFrame(data['results'])
-                        display_cols = ['claim_id', 'name', 'status', 'type', 'location', 'owner']
-                        available_cols = [col for col in display_cols if col in claims_df.columns]
-                        st.dataframe(claims_df[available_cols])
-                        st.session_state['diggings_df'] = claims_df
-                        
-                        # Map if coordinates available
-                        if 'latitude' in claims_df.columns and 'longitude' in claims_df.columns:
-                            map_df = claims_df[['latitude', 'longitude', 'name']].dropna()
-                            if not map_df.empty:
-                                diggings_map = folium.Map(location=[map_df['latitude'].mean(), map_df['longitude'].mean()], zoom_start=6)
-                                for _, row in map_df.iterrows():
-                                    folium.Marker([row['latitude'], row['longitude']], popup=row['name']).add_to(diggings_map)
-                                folium_static(diggings_map)
-                    else:
-                        st.info("No claims found matching your criteria.")
-                elif response.status_code == 403:
-                    st.error("API returned 403 Forbidden. Your API key may be invalid or expired.")
-                else:
-                    st.error(f"API Error: {response.status_code} - {response.text}")
-            except Exception as e:
-                st.error(f"Search failed: {e}")
-    else:
-        st.warning("No The Diggings API key found in secrets. Real-time search disabled. Add DIGGINGS_API_KEY to secrets.toml to enable.")
-        st.markdown("[Open The Diggings Website](https://thediggings.com/)")
-
-    # BLM Active Mining Claims Search (Official BLM ArcGIS Data with Pagination & CSV Export)
-    st.subheader("BLM Active Mining Claims Search (Official BLM ArcGIS Data)")
-    st.write("""
-    This uses the official BLM ArcGIS REST API for **active mining claims** (public data, no API key required).
-    - Max 2000 records per request
+    This uses the official BLM ArcGIS REST API for mining claims (public data, no API key required).
+    - Includes active and closed claims
     - Pagination supported for larger result sets
     - **CSV Export** available when results are loaded
     - Data directly from BLM NLSDB (updated regularly)
+    - Tip: Nevada (NV) has the most claims — try it first for testing
     """)
 
     col1, col2 = st.columns(2)
     with col1:
-        state_code = st.text_input("State Code (e.g., NM, NV, CO)", value="NM")
+        state_code = st.text_input("State Code (e.g., NV, NM, CO)", value="NV")  # Default to NV
         county = st.text_input("County Name (optional)", value="")
     with col2:
-        claim_type_filter = st.selectbox("Claim Status Filter", ["All", "Active Only"])
-        records_per_page = st.selectbox("Records Per Page", [50, 100, 200, 300, 400, 500, 1000, 2000], index=4)  # Default 400
+        records_per_page = st.selectbox("Records Per Page", [50, 100, 200, 300, 400, 500, 1000, 2000], index=4)
 
     # Session state for pagination and data
     if 'blm_page_offset' not in st.session_state:
@@ -376,19 +323,19 @@ if selected_area:
     if 'blm_current_df' not in st.session_state:
         st.session_state.blm_current_df = None
     if 'blm_all_results_df' not in st.session_state:
-        st.session_state.blm_all_results_df = pd.DataFrame()  # For cumulative export
+        st.session_state.blm_all_results_df = pd.DataFrame()
 
     def fetch_blm_claims(offset=0):
         try:
             base_url = "https://gis.blm.gov/nlsdb/rest/services/Mining_Claims/MiningClaims/MapServer/1/query"
             
-            where = "1=1"
+            where_parts = []
             if state_code:
-                where += f" AND STATE_CD = '{state_code.upper()}'"
+                where_parts.append(f"ADMIN_STATE = '{state_code.upper()}'")
             if county:
-                where += f" AND COUNTY_NM LIKE '%{county.upper()}%'"
-            if claim_type_filter == "Active Only":
-                where += " AND STATUS = 'ACTIVE'"
+                where_parts.append(f"UPPER(COUNTY_NM) LIKE '%{county.upper()}%'")
+            
+            where = " AND ".join(where_parts) if where_parts else "1=1"
 
             params = {
                 "where": where,
@@ -397,10 +344,10 @@ if selected_area:
                 "f": "json",
                 "resultRecordCount": records_per_page,
                 "resultOffset": offset,
-                "orderByFields": "SERIAL_NBR DESC"
+                "orderByFields": "CSE_NR DESC"
             }
 
-            response = requests.get(base_url, params=params, timeout=30)
+            response = requests.get(base_url, params=params, timeout=60)
             if response.status_code == 200:
                 data = response.json()
                 if 'features' in data and data['features']:
@@ -413,7 +360,7 @@ if selected_area:
                 else:
                     return pd.DataFrame(), 0
             else:
-                st.error(f"API Error: {response.status_code}")
+                st.error(f"API Error: {response.status_code} - {response.text}")
                 return pd.DataFrame(), 0
         except Exception as e:
             st.error(f"Request failed: {e}")
@@ -421,53 +368,47 @@ if selected_area:
 
     col_left, col_mid, col_right = st.columns([1, 2, 1])
     with col_mid:
-        if st.button("🔍 Search Active BLM Mining Claims", use_container_width=True):
+        if st.button("🔍 Search BLM Mining Claims", use_container_width=True):
             st.session_state.blm_page_offset = 0
-            st.session_state.blm_all_results_df = pd.DataFrame()  # Reset cumulative
+            st.session_state.blm_all_results_df = pd.DataFrame()
             df_page, count = fetch_blm_claims(offset=0)
             if not df_page.empty:
                 st.session_state.blm_current_df = df_page
                 st.session_state.blm_all_results_df = df_page.copy()
                 st.success(f"Found {len(df_page)} claims (page 1)")
+            else:
+                st.info("No claims found. Try 'NV' for Nevada — it has thousands of claims.")
 
-    # Display results and pagination
     if st.session_state.blm_current_df is not None and not st.session_state.blm_current_df.empty:
         st.success(f"Showing {len(st.session_state.blm_current_df)} claims (Total loaded: {len(st.session_state.blm_all_results_df)})")
 
-        # Key columns to display
-        display_cols = ['serial_nbr', 'claim_name', 'claim_type', 'status', 'state_cd', 'county_nm', 'claimant_name', 'loc_date']
+        display_cols = ['cse_nr', 'cse_name', 'cse_type_nr', 'cse_disp', 'admin_state', 'county_nm', 'claimant_name', 'loc_date']
         available_cols = [col for col in display_cols if col in st.session_state.blm_current_df.columns]
         st.dataframe(st.session_state.blm_current_df[available_cols], use_container_width=True)
 
-        # Map (limited points for performance)
         if 'latitude' in st.session_state.blm_current_df.columns and 'longitude' in st.session_state.blm_current_df.columns:
-            map_df = st.session_state.blm_current_df[['latitude', 'longitude', 'claim_name']].dropna()
+            map_df = st.session_state.blm_current_df[['latitude', 'longitude', 'cse_name']].dropna()
             if not map_df.empty and len(map_df) <= 300:
                 blm_map = folium.Map(location=[map_df['latitude'].mean(), map_df['longitude'].mean()], zoom_start=8)
                 for _, row in map_df.iterrows():
                     folium.CircleMarker(
                         location=[row['latitude'], row['longitude']],
                         radius=4,
-                        popup=row.get('claim_name', 'Claim'),
+                        popup=row.get('cse_name', 'Claim'),
                         color='blue',
                         fill=True,
                         fillOpacity=0.6
                     ).add_to(blm_map)
                 folium_static(blm_map)
-            elif len(map_df) > 300:
-                st.info("Too many points for map display (>300). Showing table only.")
 
-        # CSV Export Button
         csv = st.session_state.blm_all_results_df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download All Loaded Claims as CSV",
             data=csv,
-            file_name=f"blm_active_claims_{state_code.upper()}_{county or 'all'}_{claim_type_filter.lower()}.csv",
-            mime="text/csv",
-            use_container_width=True
+            file_name=f"blm_claims_{state_code.upper()}.csv",
+            mime="text/csv"
         )
 
-        # Pagination Controls
         col_prev, col_info, col_next = st.columns([1, 3, 1])
         with col_prev:
             if st.session_state.blm_page_offset > 0:
@@ -495,9 +436,9 @@ if selected_area:
                     st.info("No more results available.")
 
     st.info("""
-    **Data Source**: Official BLM ArcGIS Server (Active Mining Claims layer)  
+    **Data Source**: Official BLM ArcGIS Server  
     **Endpoint**: https://gis.blm.gov/nlsdb/rest/services/Mining_Claims/MiningClaims/MapServer/1  
-    **Features**: Pagination, CSV export of all loaded results, real-time public data.
+    **Key Fix**: Uses ADMIN_STATE for state filter (correct field). Nevada has thousands of claims — search 'NV' to see them.
     """)
 
     # JORC Compliance
@@ -571,12 +512,10 @@ if selected_area:
 uploaded_file = st.file_uploader("Upload your mining data file (Excel)", type=["xlsx"])
 
 if uploaded_file is not None:
-    # Load workbook and sheets
     wb = openpyxl.load_workbook(uploaded_file)
     sheets = wb.sheetnames
     st.write("Sheets:", sheets)
 
-    # Read first sheet
     df = pd.read_excel(uploaded_file, sheet_name=sheets[0])
     st.dataframe(df.head())
 
