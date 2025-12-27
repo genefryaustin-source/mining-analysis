@@ -368,7 +368,7 @@ if selected_area:
         county = st.text_input("County Name (optional)", value="")
     with col2:
         claim_type_filter = st.selectbox("Claim Status Filter", ["All", "Active Only"])
-        records_per_page = st.selectbox("Records Per Page", [500, 1000, 2000], index=2)
+        records_per_page = st.selectbox("Records Per Page", [50, 100, 200, 300, 400, 500, 1000, 2000], index=4)  # Default 400
 
     # Session state for pagination and data
     if 'blm_page_offset' not in st.session_state:
