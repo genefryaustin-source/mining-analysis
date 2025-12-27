@@ -19,13 +19,12 @@ import random
 import plotly.express as px
 from scipy.interpolate import griddata
 import numpy as np
-import time  # Added missing import for sleep in retry logic
 
 # ========================================
 # App Configuration
 # ========================================
 st.set_page_config(page_title="Mining Data Analysis Portal", layout="wide")
-st.title("Mining Data Analysis Portal - Enhanced with USGS, BLM, Compliance & ESG Tools")
+st.title("Mining Data Analysis Portal - Enhanced with USGS, BLM, Mindat.org & ESG Tools")
 
 # ========================================
 # Mineral Areas Database
@@ -222,84 +221,30 @@ if selected_area:
         except Exception as e:
             st.error(f"Bulletin Integration Error: {e}")
 
-    # USGS MRDS Integration
+    # USGS Mineral Resources Data System (MRDS) Integration - Updated with CSV Download
     st.subheader("USGS Mineral Resources Data System (MRDS) Integration")
-    if st.button("Query USGS MRDS for Selected Area"):
-        try:
-            usgs_url = "https://mrdata.usgs.gov/mrds/search.php"
-            params = {
-                "format": "json",
-                "max": 50,
-                **area_info['usgs_query']
-            }
-            response = requests.get(usgs_url, params=params)
-            if response.status_code == 200:
-                data = response.json()
-                if 'records' in data and data['records']:
-                    usgs_df = pd.DataFrame(data['records'])
-                    key_cols = ['mrds_id', 'site_name', 'latitude', 'longitude', 'state', 'county', 'commod1', 'commod2', 'commod3', 'dep_type', 'model']
-                    usgs_df = usgs_df[key_cols].dropna(axis=1, how='all')
-                    st.dataframe(usgs_df)
-                    commodities = usgs_df[['commod1', 'commod2', 'commod3']].melt().value.value_counts().head(10)
-                    st.bar_chart(commodities)
-                    st.session_state['usgs_df'] = usgs_df
-                    # PGM & REE detection
-                    pgm_terms = ['platinum', 'palladium', 'rhodium', 'iridium', 'osmium', 'ruthenium', 'pge', 'pgm']
-                    ree_terms = ['lanthanum', 'cerium', 'praseodymium', 'neodymium', 'samarium', 'europium', 'gadolinium', 'terbium', 'dysprosium', 'holmium', 'erbium', 'thulium', 'ytterbium', 'lutetium', 'yttrium', 'scandium', 'ree', 'rare earth']
-                    pgm_present = any(any(term in str(c).lower() for term in pgm_terms) for c in usgs_df[['commod1', 'commod2', 'commod3']].values.flatten() if pd.notna(c))
-                    ree_present = any(any(term in str(c).lower() for term in ree_terms) for c in usgs_df[['commod1', 'commod2', 'commod3']].values.flatten() if pd.notna(c))
-                    st.session_state['pgm_present'] = pgm_present
-                    st.session_state['ree_present'] = ree_present
-                    st.write(f"PGM Presence Detected: {pgm_present}")
-                    st.write(f"REE Presence Detected: {ree_present}")
-                    if pgm_present:
-                        st.subheader("Detailed PGM Deposit Models and Case Studies")
-                        st.write("""
-                        Detailed PGM Model Examples (from USGS Bulletin 1693 and similar):
-                        1. **Alaskan-type PGE Deposits (Model 9a)**: Associated with zoned mafic-ultramafic intrusions (e.g., dunite, clinopyroxenite). PGE in sulfides like pentlandite, pyrrhotite. Characteristics: High Pd/Pt ratios, formed in arc settings. Case Study: Stillwater Complex (MT) - Layered intrusion with J-M Reef, world's highest-grade PGE deposit, operated by Sibanye-Stillwater, producing ~0.5 Moz PGE annually.
-                        2. **Podiform Chromite Deposits (Model 8a)**: PGE as by-product in ophiolites. PGE in laurite inclusions in chromite. Characteristics: Low Pd, high Ru-Ir-Os. Case Study: Josephine Ophiolite (OR-CA) - Small-scale chromite mining with minor PGE recovery; historical production.
-                        3. **Stratiform PGE in Layered Intrusions (Model 5b)**: Reef-style in Bushveld-type complexes. PGE in reef horizons with sulfides. Characteristics: High Pt-Pd. Case Study: Duluth Complex (MN) - Potential for PGE in Cu-Ni sulfides; exploration by Antofagasta for Ni-Cu-PGE.
-                        4. **Synorogenic-Ni-Cu-PGE (Model 7a)**: In synorogenic intrusions. PGE in massive sulfides. Characteristics: High Ni-Cu with PGE. Case Study: Turnagain (Canada), but US analog in Voisey's Bay-style; limited US examples like Eagle Mine (MI) for Ni-Cu with minor PGE.
-                        5. **Flood Basalt-Associated Ni-Cu-PGE (Model 5a)**: In komatiitic flows or sills. Sulfides in reefs. Characteristics: High Pd. Case Study: Columbia River Basalts (US) - Potential in mafic sills; exploration for Ni-Cu-PGE in similar settings.
-                        """)
-                    if ree_present:
-                        st.subheader("Detailed REE Deposit Models")
-                        st.write("""
-                        Detailed REE Model Examples (from USGS Bulletin 1693 and similar):
-                        1. **Carbonatite Deposits (Model 10)**: REE in apatite, monazite, bastnaesite. Examples: Mountain Pass (CA), Bear Lodge (WY). Characteristics: Alkaline intrusions, high LREE, associated with Nb, U.
-                        2. **Peralkaline Granite Deposits (Model 11)**: REE in allanite, zircon, eudialyte. Examples: Bokan Mountain (AK). Characteristics: High HREE, U-Th associated, A-type granites.
-                        3. **Phosphorite Deposits (Model 34c)**: REE as by-product in marine phosphates. Examples: Florida phosphorites. Characteristics: Sedimentary, low-grade REE in apatite.
-                        4. **Ion-Adsorption Clay Deposits (Model 11d)**: Weathered granites with adsorbed REE. Examples: Chinese deposits, potential in US southeast. Characteristics: Supergene enrichment, easy leaching.
-                        5. **Placer Deposits (Model 39a)**: REE in monazite sands. Examples: Idaho placers. Characteristics: Heavy mineral concentrations, beach/river placers.
-                        """)
-                        if st.checkbox("Show Enhanced REE Visuals"):
-                            ree_elements = ['La', 'Ce', 'Pr', 'Nd', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu', 'Y', 'Sc']
-                            example_abundances = [random.uniform(0, 100) for _ in ree_elements]
-                            fig_ree, ax_ree = plt.subplots()
-                            ax_ree.bar(ree_elements, example_abundances)
-                            ax_ree.set_title("Example REE Abundance in Deposits")
-                            ax_ree.set_ylabel("Abundance (ppm)")
-                            st.pyplot(fig_ree)
-                            st.session_state['ree_chart'] = fig_ree
-                            st.image("https://www.usgs.gov/sites/default/files/styles/original/public/2023-02/ree-us-map.png?itok=6yY2z5uK", caption="US REE Deposits Map (USGS)")
+    st.write("""
+    **Note:** The legacy MRDS search API has been deprecated. Use the official interactive search or download the full dataset.
+    """)
+    st.markdown("[Open Interactive MRDS Search](https://mrdata.usgs.gov/mrds/find-mrds.php)")
+    st.markdown("[Download Full MRDS CSV Dataset](https://mrdata.usgs.gov/mrds/mrds.csv)")
+    st.info("Download the CSV for offline analysis or import into GIS tools. Contains all worldwide mineral sites with detailed attributes.")
 
-                    if 'latitude' in usgs_df.columns and 'longitude' in usgs_df.columns:
-                        map_df = usgs_df[['latitude', 'longitude', 'site_name']].dropna()
-                        if not map_df.empty:
-                            mrds_map = folium.Map(location=[map_df['latitude'].mean(), map_df['longitude'].mean()], zoom_start=6)
-                            for _, row in map_df.iterrows():
-                                folium.Marker([row['latitude'], row['longitude']], popup=row['site_name']).add_to(mrds_map)
-                            folium_static(mrds_map)
-                else:
-                    st.write("No records found.")
-            else:
-                st.error(f"USGS API Error: {response.status_code}")
-        except Exception as e:
-            st.error(f"USGS Query Error: {e}")
+    # Mindat.org Mineral Data Integration
+    st.subheader("Mindat.org Mineral Locality Data")
+    st.write("""
+    Mindat.org is the world's largest open database of minerals, rocks, meteorites, and their localities.
+    Search for minerals and localities in your selected area.
+    """)
 
-        # ========================================
+    mindat_query = st.text_input("Search Mindat.org (e.g., 'gold Nevada' or 'quartz Colorado')", value=f"{selected_area.split(' - ')[1] if ' - ' in selected_area else 'gold'} {area_info.get('state', '')}")
+    
+    if st.button("Search Mindat.org"):
+        mindat_url = f"https://www.mindat.org/search.php?search={mindat_query.replace(' ', '+')}"
+        st.markdown(f"[Open Mindat.org Search Results]({mindat_url})")
+        st.info("Mindat.org provides detailed mineralogy, photos, and locality data. Excellent for mineral species and crystal information.")
+
     # BLM Mining Claims Search (Official BLM ArcGIS Data with Pagination & CSV Export)
-    # ========================================
     st.subheader("BLM Mining Claims Search (Official BLM ArcGIS Data)")
     st.write("""
     This uses the official BLM ArcGIS REST API for mining claims (public data, no API key required).
@@ -312,7 +257,7 @@ if selected_area:
 
     col1, col2 = st.columns(2)
     with col1:
-        state_code = st.text_input("State Code (e.g., NV, NM, CO)", value="NV")  # Default to NV
+        state_code = st.text_input("State Code (e.g., NV, NM, CO)", value="NV")
         county = st.text_input("County Name (optional)", value="")
     with col2:
         records_per_page = st.selectbox("Records Per Page", [50, 100, 200, 300, 400, 500, 1000, 2000], index=4)
@@ -438,7 +383,8 @@ if selected_area:
     st.info("""
     **Data Source**: Official BLM ArcGIS Server  
     **Endpoint**: https://gis.blm.gov/nlsdb/rest/services/Mining_Claims/MiningClaims/MapServer/1  
-    **Key Fix**: Uses ADMIN_STATE for state filter (correct field). Nevada has thousands of claims — search 'NV' to see them.
+    **Features**: Pagination, CSV export of all loaded results, real-time public data.
+    **Tip**: Use 'NV' for Nevada to see thousands of claims instantly.
     """)
 
     # JORC Compliance
@@ -704,4 +650,4 @@ if uploaded_file is not None:
         pdf_buffer.seek(0)
         st.download_button("Download PDF Report", pdf_buffer, file_name="mining_report.pdf", mime="application/pdf")
 
-st.info("This is the complete, un-truncated Python code for the Mining Data Analysis Portal.")
+st.info("This is the first version of code for the Mining Data Analysis Portal.")
