@@ -19,6 +19,7 @@ import random
 import plotly.express as px
 from scipy.interpolate import griddata
 import numpy as np
+import sqlite3  # For BLM data database
 
 # ========================================
 # App Configuration
@@ -387,6 +388,53 @@ if selected_area:
     **Tip**: Use 'NV' for Nevada to see thousands of claims instantly.
     """)
 
+    # Search for Mines/Claims for Sale (Using BLM Data)
+    st.subheader("Search for Mines/Claims for Sale")
+
+    st.write("""
+    Use your BLM search results to find mining claims or mines that may be for sale.
+    - Many BLM unpatented claims are privately transferred (sold) between individuals.
+    - Below are direct links to major marketplaces — use the **CSE_NR** (serial number) or location from your BLM results to search.
+    - Some sites list BLM serial numbers directly.
+    """)
+
+    # Only show if BLM data is loaded
+    if st.session_state.blm_all_results_df is not None and not st.session_state.blm_all_results_df.empty:
+        st.success(f"BLM search loaded {len(st.session_state.blm_all_results_df)} claims — use serial numbers (cse_nr) below for sale searches.")
+
+        # Show top 10 serial numbers for easy copy
+        serial_numbers = st.session_state.blm_all_results_df['cse_nr'].astype(str).tolist()[:10]
+        st.write("**Sample Serial Numbers (cse_nr) from your results — copy and search on sites below:**")
+        for sn in serial_numbers:
+            st.code(sn)
+
+        st.write("**Automated Search Links (using first serial number as example):**")
+        example_sn = st.session_state.blm_all_results_df['cse_nr'].astype(str).iloc[0]
+
+        st.markdown(f"""
+        - [The Diggings - Search by Serial Number](https://thediggings.com/search?serial_number={example_sn})
+        - [Gold Rush Expeditions - Nevada Claims](https://goldrushexpeditions.com/mining-claims-for-sale/nevada-mining-claims-for-sale/)
+        - [MineListings.com - Search](https://minelistings.com/?s={example_sn})
+        - [LandGate - Mineral Rights Search](https://landgate.com/mineral-rights)
+        - [Mountain Man Mining - Nevada Claims](https://mountainmanmining.com/collections/nevada)
+        """)
+
+    else:
+        st.info("Run a BLM search first to load claims. Then use serial numbers (cse_nr) to check sale listings on these sites:")
+
+    # Always show general links
+    st.write("**Major Marketplaces for Mining Claims/Mines for Sale:**")
+    st.markdown("""
+    - **[The Diggings](https://thediggings.com)** – Best for BLM serial number search (free/premium)
+    - **[Gold Rush Expeditions](https://goldrushexpeditions.com/mining-claims-for-sale/) – Documented claims with reports
+    - **[MineListings.com](https://minelistings.com/) – Global mine/claim marketplace
+    - **[LandGate](https://landgate.com/mineral-rights) – Mineral rights & claims with maps
+    - **[Mountain Man Mining](https://mountainmanmining.com/) – Nevada-focused claims
+    - **[eBay - Mining Claims](https://www.ebay.com/sch/i.html?_nkw=mining+claim) – Active private sales
+    """)
+
+    st.info("Tip: Copy cse_nr (serial number) from BLM results and paste into The Diggings or other sites to see if the claim is listed for sale or to contact the owner.")
+
     # JORC Compliance
     st.subheader("JORC Compliance Details and Reports")
     st.write("JORC Code 2024 Updates: Enhanced ESG provisions, mandatory ESG in Modifying Factors, greater transparency.")
@@ -458,12 +506,10 @@ if selected_area:
 uploaded_file = st.file_uploader("Upload your mining data file (Excel)", type=["xlsx"])
 
 if uploaded_file is not None:
-    # Load workbook and sheets
     wb = openpyxl.load_workbook(uploaded_file)
     sheets = wb.sheetnames
     st.write("Sheets:", sheets)
 
-    # Read first sheet
     df = pd.read_excel(uploaded_file, sheet_name=sheets[0])
     st.dataframe(df.head())
 
