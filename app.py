@@ -20,6 +20,7 @@ import plotly.express as px
 from scipy.interpolate import griddata
 import numpy as np
 import sqlite3  # For BLM data database
+from bs4 import BeautifulSoup  # For scraping
 
 # ========================================
 # App Configuration
@@ -413,6 +414,7 @@ if selected_area:
 
         st.markdown(f"""
         - [The Diggings - Search by Serial Number](https://thediggings.com/search?serial_number={example_sn})
+        - [MineExchange.com - Search by Serial Number](https://mineexchange.com/search?query={example_sn})
         - [Gold Rush Expeditions - Nevada Claims](https://goldrushexpeditions.com/mining-claims-for-sale/nevada-mining-claims-for-sale/)
         - [MineListings.com - Search](https://minelistings.com/?s={example_sn})
         - [LandGate - Mineral Rights Search](https://landgate.com/mineral-rights)
@@ -426,14 +428,16 @@ if selected_area:
     st.write("**Major Marketplaces for Mining Claims/Mines for Sale:**")
     st.markdown("""
     - **[The Diggings](https://thediggings.com)** – Best for BLM serial number search (free/premium)
-    - **[Gold Rush Expeditions](https://goldrushexpeditions.com/mining-claims-for-sale/) – Documented claims with reports
-    - **[MineListings.com](https://minelistings.com/) – Global mine/claim marketplace
-    - **[LandGate](https://landgate.com/mineral-rights) – Mineral rights & claims with maps
-    - **[Mountain Man Mining](https://mountainmanmining.com/) – Nevada-focused claims
-    - **[eBay - Mining Claims](https://www.ebay.com/sch/i.html?_nkw=mining+claim) – Active private sales
+    - **[MineExchange.com](https://mineexchange.com)** – Professional marketplace for mines and claims
+    - **[Gold Rush Expeditions](https://goldrushexpeditions.com/mining-claims-for-sale/)** – Documented claims with reports
+    - **[MineListings.com](https://minelistings.com/)** – Global mine/claim marketplace
+    - **[LandGate](https://landgate.com/mineral-rights)** – Mineral rights & claims with maps
+    - **[Mountain Man Mining](https://mountainmanmining.com/)** – Nevada-focused claims
+    - **[Out West Land Sales](https://outwestlandsales.com/patented-mining-claims/)** – Patented mining claims listings
+    - **[eBay - Mining Claims](https://www.ebay.com/sch/i.html?_nkw=mining+claim)** – Active private sales
     """)
 
-    st.info("Tip: Copy cse_nr (serial number) from BLM results and paste into The Diggings or other sites to see if the claim is listed for sale or to contact the owner.")
+    st.info("Tip: Copy cse_nr (serial number) from BLM results and paste into The Diggings, MineExchange.com, or other sites to see if the claim is listed for sale or to contact the owner.")
 
     # JORC Compliance
     st.subheader("JORC Compliance Details and Reports")
